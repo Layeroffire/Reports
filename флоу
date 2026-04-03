@@ -6,7 +6,7 @@
     public Optional<Integer> findRegionIdByVolunteerId(String registryVolunteerId) {
         return volunteerService.getUnitInfoByVolunteerId(registryVolunteerId)
                 .map(ExternalUnitInfo::getUnitId)
-                .flatMap(this::parseUnitId)
+                .flatMap(this::parseUnitId) // виклик функції в методі 
                 .map(unitRegionMappingRepository::findRegionIdsByUnitId)
                 .flatMap(this::findMostSpecificRegionId); // отримує unitId і передає його в findRegionIdsByUnitId.
     }
