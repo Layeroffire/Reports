@@ -1,0 +1,28 @@
+    private final VolunteerService volunteerService;
+    private final UnitRegionMappingRepository unitRegionMappingRepository;
+    private final RegionRepo regionRepo;
+
+    @Override
+    public Optional<Integer> findRegionIdByVolunteerId(String registryVolunteerId) {
+        return volunteerService.getUnitInfoByVolunteerId(registryVolunteerId)
+                .map(ExternalUnitInfo::getUnitId)
+                .flatMap(this::parseUnitId)
+                .map(unitRegionMappingRepository::findRegionIdsByUnitId)
+                .flatMap(this::findMostSpecificRegionId); // отримує unitId і передає його в findRegionIdsByUnitId.
+    }
+
+-------------------------------------------------------------------------------------------
+@Data
+@Builder
+public class ExternalUnitInfo {
+    private String unitId;
+    private String volunteerId;
+    private String unitMemberStatus;
+}
+
+-------------------------------------------------------------------------------------------
+@Repository
+public interface UnitRegionMappingRepository extends JpaRepository<UnitRegionMapping, Long> {
+
+    @Query("SELECT urm.regionId FROM UnitRegionMapping urm WHERE urm.unitId = :unitId")
+    List<Integer> findRegionIdsByUnitId(@Param("unitId") Long unitId);
