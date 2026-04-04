@@ -15,3 +15,13 @@
         .items(page.map(this::toSummary).getContent())
         .build();
   }
+--------------------------------------------------------------------------------------------
+@Builder
+public record GetUsersPageCommand(
+    int page,
+    int size,
+    String sort,
+    String requesterId,
+    String requesterRole,
+    String requesterFacultyId,
+    String requesterDepartmentId) {}
