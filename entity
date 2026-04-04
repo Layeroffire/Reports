@@ -1,0 +1,85 @@
+package com.nexus.infrastructure.persistence.event;
+
+import com.nexus.domain.event.EventStatus;
+import com.nexus.domain.event.EventType;
+import com.nexus.infrastructure.persistence.user.UserEntity;
+import jakarta.persistence.*;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import lombok.*;
+
+@Getter
+@Setter
+@Entity
+@Builder
+@ToString
+@NoArgsConstructor
+@AllArgsConstructor
+@Table(
+    name = "event",
+    indexes = {
+      @Index(name = "idx_event_type", columnList = "event_type"),
+      @Index(name = "idx_event_status", columnList = "status"),
+      @Index(name = "idx_event_created_at", columnList = "created_at"),
+      @Index(name = "idx_event_created_by", columnList = "created_by"),
+      @Index(name = "idx_event_updated_at", columnList = "updated_at")
+    })
+public class EventEntity {
+
+  @Id
+  @Column(name = "id", length = 64)
+  private String id;
+
+  @Enumerated(EnumType.STRING)
+  @Column(name = "event_type", nullable = false, length = 50)
+  private EventType eventType;
+
+  @ManyToOne(fetch = FetchType.LAZY, cascade = CascadeType.ALL)
+  @JoinColumn(name = "address_id")
+  private AddressEntity address;
+
+  @Column(name = "description", columnDefinition = "TEXT")
+  private String description;
+
+  @Enumerated(EnumType.STRING)
+  @Column(name = "status", nullable = false, length = 50)
+  private EventStatus status;
+
+  @Column(name = "community_id", length = 64)
+  private String communityId;
+
+  @Column(name = "created_at", nullable = false)
+  private LocalDateTime createdAt;
+
+  @Column(name = "updated_at", nullable = false)
+  private LocalDateTime updatedAt;
+
+  @ManyToOne(fetch = FetchType.LAZY)
+  @JoinColumn(name = "created_by", nullable = false)
+  private UserEntity createdBy;
+
+  @OneToMany(
+      mappedBy = "event",
+      cascade = CascadeType.ALL,
+      orphanRemoval = true,
+      fetch = FetchType.LAZY)
+  @Builder.Default
+  private List<EventOfficerEntity> eventOfficers = new ArrayList<>();
+
+  @PrePersist
+  protected void onCreate() {
+    LocalDateTime now = LocalDateTime.now();
+    if (createdAt == null) {
+      createdAt = now;
+    }
+    if (updatedAt == null) {
+      updatedAt = now;
+    }
+  }
+
+  @PreUpdate
+  protected void onUpdate() {
+    updatedAt = LocalDateTime.now();
+  }
+}
