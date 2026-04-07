@@ -1,0 +1,24 @@
+public interface PaymentMethod {
+    void pay(double amount);
+}
+--------------------------------------------------------
+public class CardPayment implements PaymentMethod {
+    @Override
+    public void pay(double amount) {
+        System.out.println("Оплата карткою: " + amount);
+    }
+}
+--------------------------------------------------------
+public class PaypalPayment implements PaymentMethod {
+    @Override
+    public void pay(double amount) {
+        System.out.println("Оплата через PayPal: " + amount);
+    }
+}
+--------------------------------------------------------
+public class CryptoPayment implements PaymentMethod {
+    @Override
+    public void pay(double amount) {
+        System.out.println("Оплата криптою: " + amount);
+    }
+}
