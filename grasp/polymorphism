@@ -1,0 +1,11 @@
+interface ITaxCalculator {
+    double GetTax(Order order);
+}
+
+class USATaxCalculator : ITaxCalculator {
+    public double GetTax(Order order) => order.Total * 0.1;
+}
+
+class UKTaxCalculator : ITaxCalculator {
+    public double GetTax(Order order) => order.Total * 0.2;
+}
