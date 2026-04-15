@@ -1,0 +1,217 @@
+package com.ubgd.volunteercore.controller;
+
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ubgd.volunteercore.TestContainers;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
+import java.time.LocalDate;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest
+@AutoConfigureMockMvc(addFilters = false)
+@Transactional
+class VoluntaryUnitControllerIntegrationTest extends TestContainers {
+
+    @Autowired private MockMvc mockMvc;
+
+    @Autowired private ObjectMapper objectMapper;
+
+    @Autowired JdbcTemplate jdbcTemplate;
+
+    @DynamicPropertySource
+    static void configureDataSource(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", TestContainers::getJdbcUrl);
+        registry.add("spring.datasource.username", TestContainers::getDbUsername);
+        registry.add("spring.datasource.password", TestContainers::getDbPassword);
+        registry.add("spring.datasource.driver-class-name", TestContainers::getDriverClassName);
+    }
+
+
+    @BeforeEach
+    void setUp() {
+        clearDatabase();
+        insertTestData();
+    }
+
+    @Test
+    void getAllUnitsInCoordinates_returnsUnitLocations() throws Exception {
+        mockMvc.perform(get("/voluntary-formation/all/map-details")
+                        .queryParam("neLongitude", "30.55")
+                        .queryParam("neLatitude", "50.55")
+                        .queryParam("swLongitude", "30.45")
+                        .queryParam("swLatitude", "50.45")
+                        .queryParam("regionId", "1")
+                        .queryParam("unitTypeDetails", "ДПК")
+                        .queryParam("unitTypeDetails", "МПО")
+                        .queryParam("isOnDuty", "true")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].unitId").value(10))
+                .andExpect(jsonPath("$[0].longitude").value(30.51))
+                .andExpect(jsonPath("$[0].latitude").value(50.52))
+                .andExpect(jsonPath("$[0].unitType").value("ДПК"));
+    }
+
+    private void clearDatabase() {
+        jdbcTemplate.update("DELETE FROM duty_note_member");
+        jdbcTemplate.update("DELETE FROM duty_note");
+        jdbcTemplate.update("DELETE FROM volunteer_unit");
+        jdbcTemplate.update("DELETE FROM users");
+        jdbcTemplate.update("DELETE FROM volunteer_profile");
+        jdbcTemplate.update("DELETE FROM unit");
+        jdbcTemplate.update("DELETE FROM regions WHERE region_id = 1");
+    }
+
+    private void insertTestData() {
+        jdbcTemplate.update("""
+                INSERT INTO regions (region_id, region_name, region_type, state_id, district_id, geom)
+                VALUES (?, ?, ?, ?, ?, ST_GeomFromText(?, 4326))
+                """,
+                1,
+                "Test Region",
+                "STATE",
+                null,
+                null,
+                "MULTIPOLYGON(((30.40 50.40, 30.60 50.40, 30.60 50.60, 30.40 50.60, 30.40 50.40)))"
+        );
+
+        jdbcTemplate.update("""
+                INSERT INTO unit (
+                    id,
+                    status,
+                    region,
+                    district,
+                    community,
+                    community_category,
+                    unit_type,
+                    name,
+                    locality,
+                    street,
+                    building_number,
+                    latitude,
+                    longitude,
+                    mobile_office_support,
+                    unit_type_details,
+                    geom
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ST_SetSRID(ST_MakePoint(?, ?), 4326))
+                """,
+                10L,
+                "AVAILABLE",
+                "Test Region",
+                "Test District",
+                "Test Community",
+                "Test Category",
+                "Test Unit Type",
+                "Test Unit",
+                "Test Locality",
+                "Test Street",
+                "1A",
+                50.52,
+                30.51,
+                "SUPPORTED",
+                "ДПК",
+                30.51,
+                50.52
+        );
+
+        jdbcTemplate.update("""
+    INSERT INTO volunteer_profile (
+        id,
+        correlation_id,
+        latitude,
+        longitude,
+        status,
+        volunteer_contact_info_id,
+        rnokpp,
+        region,
+        geom,
+        qualification
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ST_SetSRID(ST_MakePoint(?, ?), 4326), ?)
+""", 100L, "corr-100", 50.52, 30.51, "AVAILABLE", null, "1234567890", "Test Region", 30.51, 50.52, "RESCUER");
+
+        jdbcTemplate.update("""
+                INSERT INTO users (
+                    id,
+                    username,
+                    password,
+                    email,
+                    rnokpp,
+                    role,
+                    region_id,
+                    volunteer_profile_id,
+                    verify_status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                200L,
+                "test-unit-manager",
+                "password",
+                "unit-manager@test.local",
+                "0987654321",
+                "UNIT_MANAGER",
+                1,
+                100L,
+                "VERIFIED"
+        );
+
+        jdbcTemplate.update("""
+                INSERT INTO volunteer_unit (
+                    id,
+                    unit_id,
+                    volunteer_profile_id,
+                    status,
+                    priority,
+                    activated
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                300L,
+                10L,
+                100L,
+                "UNIT_MANAGER",
+                1,
+                "true"
+        );
+
+        jdbcTemplate.update("""
+                INSERT INTO duty_note (
+                    id,
+                    date,
+                    created_by,
+                    unit_id
+                ) VALUES (?, ?, ?, ?)
+                """,
+                400L,
+                LocalDate.now(),
+                200L,
+                10L
+        );
+
+        jdbcTemplate.update("""
+                INSERT INTO duty_note_member (
+                    id,
+                    duty_note_id,
+                    volunteer_profile_id,
+                    on_duty
+                ) VALUES (?, ?, ?, ?)
+                """,
+                500L,
+                400L,
+                100L,
+                true
+        );
+    }
+}
