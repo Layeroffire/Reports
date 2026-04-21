@@ -1,0 +1,40 @@
+package com.nexus.domain.account;
+
+import java.util.UUID;
+import lombok.*;
+
+@Getter
+@Builder
+@ToString
+@NoArgsConstructor
+@AllArgsConstructor
+public class Account {
+
+  private String accountId;
+  private String userId;
+  private String personId;
+  private String position;
+  private String unitId;
+  private Boolean verified;
+  private String facultyId;
+  private String facultyTitle;
+  private String departmentId;
+  private String departmentTitle;
+
+  public static Account create(String userId, String unitId) {
+    return Account.builder()
+        .accountId(UUID.randomUUID().toString())
+        .userId(userId)
+        .unitId(unitId)
+        .verified(false)
+        .build();
+  }
+
+  public void addPersonId(String personId) {
+    this.personId = personId;
+  }
+
+  public void changeVerificationStatus(Boolean verified) {
+    this.verified = verified;
+  }
+}
