@@ -1,50 +1,90 @@
-package com.ubgd.volunteercore.controller;
+package com.ubgd.volunteercore.controller.integration;
 
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ubgd.volunteercore.TestContainers;
+import com.ubgd.volunteercore.model.dto.ExternalVolunteerData;
+import com.ubgd.volunteercore.model.request.VolunteerCreateRequest;
+import com.ubgd.volunteercore.service.VolunteerRegistryService;
+import com.ubgd.volunteercore.security.model.User;
+import com.ubgd.volunteercore.security.model.UserRole;
+import com.ubgd.volunteercore.security.model.VerifyStatus;
+import com.ubgd.volunteercore.security.service.UserService;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
-import java.time.LocalDate;
 
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
 @AutoConfigureMockMvc(addFilters = false)
-@Transactional
 class VoluntaryUnitControllerIntegrationTest extends TestContainers {
 
     @Autowired private MockMvc mockMvc;
 
-    @Autowired private ObjectMapper objectMapper;
-
     @Autowired JdbcTemplate jdbcTemplate;
 
-    @DynamicPropertySource
-    static void configureDataSource(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", TestContainers::getJdbcUrl);
-        registry.add("spring.datasource.username", TestContainers::getDbUsername);
-        registry.add("spring.datasource.password", TestContainers::getDbPassword);
-        registry.add("spring.datasource.driver-class-name", TestContainers::getDriverClassName);
-    }
+    @MockBean UserService userService;
+    @MockBean VolunteerRegistryService volunteerRegistryService;
 
 
     @BeforeEach
     void setUp() {
         clearDatabase();
-        insertTestData();
+        loadSql("sql/integration/base-scenario.sql");
+        when(userService.findUser()).thenReturn(User.builder()
+                .id(200L)
+                .username("test-unit-manager")
+                .password("password")
+                .email("unit-manager@test.local")
+                .rnokpp("1234567890")
+                .role(UserRole.UNIT_MANAGER)
+                .regionId(1)
+                .verifyStatus(VerifyStatus.VERIFIED)
+                .build());
+        when(volunteerRegistryService.findExternalVolunteerDataById("corr-100"))
+                .thenReturn(Optional.of(ExternalVolunteerData.builder()
+                        .id("corr-100")
+                        .firstName("Test")
+                        .lastName("Volunteer")
+                        .mobilePhone("+380501112233")
+                        .email("unit-manager@test.local")
+                        .build()));
+        when(volunteerRegistryService.findExternalVolunteerDataByUnitId("10"))
+                .thenReturn(Optional.of(List.of(ExternalVolunteerData.builder()
+                        .id("corr-100")
+                        .firstName("Test")
+                        .lastName("Volunteer")
+                        .mobilePhone("+380501112233")
+                        .email("unit-manager@test.local")
+                        .build())));
+        when(volunteerRegistryService.create(any()))
+                .thenReturn(Optional.of(ExternalVolunteerData.builder()
+                        .id("corr-101")
+                        .firstName("New")
+                        .lastName("Volunteer")
+                        .mobilePhone("+380501234567")
+                        .email("new.volunteer@test.local")
+                        .build()));
     }
 
     @Test
@@ -67,151 +107,381 @@ class VoluntaryUnitControllerIntegrationTest extends TestContainers {
                 .andExpect(jsonPath("$[0].unitType").value("ДПК"));
     }
 
-    private void clearDatabase() {
-        jdbcTemplate.update("DELETE FROM duty_note_member");
-        jdbcTemplate.update("DELETE FROM duty_note");
-        jdbcTemplate.update("DELETE FROM volunteer_unit");
-        jdbcTemplate.update("DELETE FROM users");
-        jdbcTemplate.update("DELETE FROM volunteer_profile");
-        jdbcTemplate.update("DELETE FROM unit");
-        jdbcTemplate.update("DELETE FROM regions WHERE region_id = 1");
+    @Test
+    void getUnitInfoByUnitId_returnsUnitWithVolunteers() throws Exception {
+        mockMvc.perform(get("/voluntary-formation/units/{unitId}", 10L)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(10))
+                .andExpect(jsonPath("$.status").value("AVAILABLE"))
+                .andExpect(jsonPath("$.region").value("Test Region"))
+                .andExpect(jsonPath("$.name").value("Test Unit"))
+                .andExpect(jsonPath("$.unitTypeDetails").value("ДПК"))
+                .andExpect(jsonPath("$.volunteers.length()").value(1))
+                .andExpect(jsonPath("$.volunteers[0].registryId").value("corr-100"))
+                .andExpect(jsonPath("$.volunteers[0].email").value("unit-manager@test.local"))
+                .andExpect(jsonPath("$.volunteers[0].status").value("Unit Manager"))
+                .andExpect(jsonPath("$.volunteers[0].phoneNumber").value("+380501112233"))
+                .andExpect(jsonPath("$.volunteers[0].isVerified").value(true));
     }
 
-    private void insertTestData() {
-        jdbcTemplate.update("""
-                INSERT INTO regions (region_id, region_name, region_type, state_id, district_id, geom)
-                VALUES (?, ?, ?, ?, ?, ST_GeomFromText(?, 4326))
-                """,
-                1,
-                "Test Region",
-                "STATE",
-                null,
-                null,
-                "MULTIPOLYGON(((30.40 50.40, 30.60 50.40, 30.60 50.60, 30.40 50.60, 30.40 50.40)))"
-        );
+    @Test
+    void getAllUnits_returnsPagedUnits() throws Exception {
+        mockMvc.perform(get("/voluntary-formation/units")
+                        .queryParam("page", "1")
+                        .queryParam("size", "10")
+                        .queryParam("regionId", "1")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.totalItems").value(1))
+                .andExpect(jsonPath("$.hasNext").value(false))
+                .andExpect(jsonPath("$.hasPrevious").value(false))
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(10))
+                .andExpect(jsonPath("$.content[0].name").value("Test Unit"))
+                .andExpect(jsonPath("$.content[0].region").value("Test Region"))
+                .andExpect(jsonPath("$.content[0].district").value("Test District"))
+                .andExpect(jsonPath("$.content[0].community").value("Test Community"))
+                .andExpect(jsonPath("$.content[0].communityCategory").value("Test Category"))
+                .andExpect(jsonPath("$.content[0].locality").value("Test Locality"))
+                .andExpect(jsonPath("$.content[0].street").value("Test Street"))
+                .andExpect(jsonPath("$.content[0].buildingNumber").value("1A"))
+                .andExpect(jsonPath("$.content[0].latitude").value(50.52))
+                .andExpect(jsonPath("$.content[0].longitude").value(30.51))
+                .andExpect(jsonPath("$.content[0].mobileOfficeSupport").value("SUPPORTED"))
+                .andExpect(jsonPath("$.content[0].unitTypeDetails").value("ДПК"));
+    }
 
-        jdbcTemplate.update("""
-                INSERT INTO unit (
-                    id,
-                    status,
-                    region,
-                    district,
-                    community,
-                    community_category,
-                    unit_type,
-                    name,
-                    locality,
-                    street,
-                    building_number,
-                    latitude,
-                    longitude,
-                    mobile_office_support,
-                    unit_type_details,
-                    geom
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ST_SetSRID(ST_MakePoint(?, ?), 4326))
-                """,
+    @Test
+    void getUnitsInfoByOfficerId_returnsPagedUnits() throws Exception {
+        mockMvc.perform(get("/voluntary-formation/units/officer/{officerId}", 100L)
+                        .queryParam("page", "1")
+                        .queryParam("size", "10")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.totalItems").value(1))
+                .andExpect(jsonPath("$.hasNext").value(false))
+                .andExpect(jsonPath("$.hasPrevious").value(false))
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(10))
+                .andExpect(jsonPath("$.content[0].name").value("Test Unit"))
+                .andExpect(jsonPath("$.content[0].region").value("Test Region"))
+                .andExpect(jsonPath("$.content[0].latitude").value(50.52))
+                .andExpect(jsonPath("$.content[0].longitude").value(30.51))
+                .andExpect(jsonPath("$.content[0].mobileOfficeSupport").value("SUPPORTED"))
+                .andExpect(jsonPath("$.content[0].unitTypeDetails").value("ДПК"));
+    }
+
+    @Test
+    void findAvailableUnitsByCoordinates_returnsClosestAvailableUnits() throws Exception {
+        mockMvc.perform(post("/voluntary-formation/units/available/coordinates")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "longitude": 30.50,
+                                  "latitude": 50.50,
+                                  "count": 5,
+                                  "radius": 5000
+                                }
+                                """))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void getUnitsNearEvent_returnsOnDutyUnits() throws Exception {
+        mockMvc.perform(get("/voluntary-formation/units/closest/location")
+                        .queryParam("latitude", "50.50")
+                        .queryParam("longitude", "30.50")
+                        .queryParam("isOnDuty", "true")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(10))
+                .andExpect(jsonPath("$[0].name").value("Test Unit"))
+                .andExpect(jsonPath("$[0].region").value("Test Region"))
+                .andExpect(jsonPath("$[0].district").value("Test District"))
+                .andExpect(jsonPath("$[0].community").value("Test Community"))
+                .andExpect(jsonPath("$[0].latitude").value(50.52))
+                .andExpect(jsonPath("$[0].longitude").value(30.51))
+                .andExpect(jsonPath("$[0].mobileOfficeSupport").value("SUPPORTED"))
+                .andExpect(jsonPath("$[0].volunteersCount").value(1));
+    }
+
+    @Test
+    void getAllUnitRequests_returnsPagedHistory() throws Exception {
+        loadSql("sql/integration/request-scenario.sql");
+
+        mockMvc.perform(get("/voluntary-formation/units/{unitId}/requests", 10L)
+                        .queryParam("page", "1")
+                        .queryParam("size", "10")
+                        .queryParam("sortBy", "id")
+                        .queryParam("sortOrder", "asc")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.totalItems").value(1))
+                .andExpect(jsonPath("$.hasNext").value(false))
+                .andExpect(jsonPath("$.hasPrevious").value(false))
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(900))
+                .andExpect(jsonPath("$.content[0].eventId").value(800))
+                .andExpect(jsonPath("$.content[0].eventType").value("FIRE"))
+                .andExpect(jsonPath("$.content[0].status").value("ACCEPTED"))
+                .andExpect(jsonPath("$.content[0].eventAddress.street").value("Event Street"))
+                .andExpect(jsonPath("$.content[0].eventAddress.buildingNumber").value("7B"))
+                .andExpect(jsonPath("$.content[0].eventAddress.city").value("Test City"))
+                .andExpect(jsonPath("$.content[0].eventAddress.state").value("Test Region"));
+    }
+
+    @Test
+    void getUnitMembersByUnitId_returnsPagedMembers() throws Exception {
+        mockMvc.perform(get("/voluntary-formation/units/{unitId}/members", 10L)
+                        .queryParam("page", "1")
+                        .queryParam("size", "10")
+                        .queryParam("sortBy", "firstName")
+                        .queryParam("sortOrder", "asc")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.totalItems").value(1))
+                .andExpect(jsonPath("$.hasNext").value(false))
+                .andExpect(jsonPath("$.hasPrevious").value(false))
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].registryId").value("corr-100"))
+                .andExpect(jsonPath("$.content[0].firstName").value("Test"))
+                .andExpect(jsonPath("$.content[0].lastName").value("Volunteer"))
+                .andExpect(jsonPath("$.content[0].status").value("Unit Manager"))
+                .andExpect(jsonPath("$.content[0].email").value("unit-manager@test.local"))
+                .andExpect(jsonPath("$.content[0].phoneNumber").value("+380501112233"))
+                .andExpect(jsonPath("$.content[0].isVerified").value(true));
+    }
+
+//    @Test
+//    void updateUnit_updatesStatusAndReturnsUpdatedUnit() throws Exception {
+//        mockMvc.perform(put("/voluntary-formation/units/{id}", 10L)
+//                        .contentType(MediaType.APPLICATION_JSON)
+//                        .content("""
+//                                {
+//                                  "status": "UNAVAILABLE"
+//                                }
+//                                """))
+//                .andExpect(status().isOk())
+//                .andExpect(jsonPath("$.id").value(10))
+//                .andExpect(jsonPath("$.status").value("UNAVAILABLE"))
+//                .andExpect(jsonPath("$.name").value("Test Unit"));
+//
+//        String status = jdbcTemplate.queryForObject(
+//                "SELECT status FROM unit WHERE id = ?",
+//                String.class,
+//                10L
+//        );
+//
+//        assertEquals("UNAVAILABLE", status);
+//    }
+
+    @Test
+    void removeVolunteerFromUnit_deletesRelationAndReturnsNoContent() throws Exception {
+        Integer relationsBeforeDelete = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM volunteer_unit WHERE unit_id = ? AND volunteer_profile_id = ?",
+                Integer.class,
                 10L,
-                "AVAILABLE",
-                "Test Region",
-                "Test District",
-                "Test Community",
-                "Test Category",
-                "Test Unit Type",
-                "Test Unit",
-                "Test Locality",
-                "Test Street",
-                "1A",
-                50.52,
-                30.51,
-                "SUPPORTED",
-                "ДПК",
-                30.51,
-                50.52
+                100L
         );
 
-        jdbcTemplate.update("""
-    INSERT INTO volunteer_profile (
-        id,
-        correlation_id,
-        latitude,
-        longitude,
-        status,
-        volunteer_contact_info_id,
-        rnokpp,
-        region,
-        geom,
-        qualification
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ST_SetSRID(ST_MakePoint(?, ?), 4326), ?)
-""", 100L, "corr-100", 50.52, 30.51, "AVAILABLE", null, "1234567890", "Test Region", 30.51, 50.52, "RESCUER");
+        assertEquals(1, relationsBeforeDelete);
 
-        jdbcTemplate.update("""
-                INSERT INTO users (
-                    id,
-                    username,
-                    password,
-                    email,
-                    rnokpp,
-                    role,
-                    region_id,
-                    volunteer_profile_id,
-                    verify_status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                200L,
-                "test-unit-manager",
-                "password",
-                "unit-manager@test.local",
-                "0987654321",
-                "UNIT_MANAGER",
-                1,
-                100L,
-                "VERIFIED"
-        );
+        mockMvc.perform(delete("/voluntary-formation/units/{unitId}/volunteers/{registryId}", 10L, "corr-100"))
+                .andExpect(status().isNoContent());
 
-        jdbcTemplate.update("""
-                INSERT INTO volunteer_unit (
-                    id,
-                    unit_id,
-                    volunteer_profile_id,
-                    status,
-                    priority,
-                    activated
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                300L,
+        Integer relationsAfterDelete = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM volunteer_unit WHERE unit_id = ? AND volunteer_profile_id = ?",
+                Integer.class,
                 10L,
-                100L,
-                "UNIT_MANAGER",
-                1,
-                "true"
+                100L
         );
 
-        jdbcTemplate.update("""
-                INSERT INTO duty_note (
-                    id,
-                    date,
-                    created_by,
-                    unit_id
-                ) VALUES (?, ?, ?, ?)
-                """,
-                400L,
-                LocalDate.now(),
-                200L,
-                10L
-        );
+        assertEquals(0, relationsAfterDelete);
+        verify(volunteerRegistryService).removeVolunteerFromUnit("corr-100", "10");
+    }
 
-        jdbcTemplate.update("""
-                INSERT INTO duty_note_member (
-                    id,
-                    duty_note_id,
-                    volunteer_profile_id,
-                    on_duty
-                ) VALUES (?, ?, ?, ?)
-                """,
-                500L,
-                400L,
-                100L,
-                true
-        );
+    @Test
+    void createVolunteer_createsUnitMemberAndReturnsCreated() throws Exception {
+        mockMvc.perform(post("/voluntary-formation")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "firstName": "New",
+                                  "lastName": "Volunteer",
+                                  "birthDate": "1995-05-10",
+                                  "rnokpp": "9876543210",
+                                  "mobilePhone": "0501234567",
+                                  "email": "new.volunteer@test.local",
+                                  "town": "Test Town",
+                                  "postalCode": "01001",
+                                  "region": "Test Region",
+                                  "regionDistrict": "Test District",
+                                  "street": "Test Street",
+                                  "buildingNumber": "15B",
+                                  "unitMemberStatus": "UNIT_MEMBER",
+                                  "unitId": "10"
+                                }
+                                """))
+                .andExpect(status().isCreated());
+
+        ArgumentCaptor<VolunteerCreateRequest> requestCaptor = ArgumentCaptor.forClass(VolunteerCreateRequest.class);
+        verify(volunteerRegistryService).create(requestCaptor.capture());
+
+        VolunteerCreateRequest capturedRequest = requestCaptor.getValue();
+        assertEquals("New", capturedRequest.firstName());
+        assertEquals("Volunteer", capturedRequest.lastName());
+        assertEquals("9876543210", capturedRequest.memberRnokppCode());
+        assertEquals("0501234567", capturedRequest.mobilePhone());
+        assertEquals("new.volunteer@test.local", capturedRequest.email());
+        assertEquals("10", capturedRequest.unitId());
+        assertEquals("Unit Member", capturedRequest.unitMemberStatus());
+        assertEquals("Test Region", capturedRequest.region());
+        assertEquals("Test District", capturedRequest.regionDistrict());
+        assertEquals("Test Town", capturedRequest.town());
+        assertEquals("Test Street", capturedRequest.street());
+        assertEquals("15B", capturedRequest.buildingNumber());
+        assertEquals("01001", capturedRequest.postCode());
+    }
+
+
+
+    private void clearDatabase() {
+        jdbcTemplate.execute("TRUNCATE TABLE unit_request, event, address, duty_note_member, duty_note, volunteer_unit, users, volunteer_profile, volunteer_contact_info, unit, regions RESTART IDENTITY CASCADE");
+    }
+
+    private void loadSql(String path) {
+        new ResourceDatabasePopulator(new ClassPathResource(path))
+                .execute(jdbcTemplate.getDataSource());
     }
 }
+------------------------------------------------------------------------
+INSERT INTO regions (region_id, region_name, region_type, state_id, district_id, geom)
+VALUES (
+    1,
+    'Test Region',
+    'STATE',
+    NULL,
+    NULL,
+    ST_GeomFromText('MULTIPOLYGON(((30.40 50.40, 30.60 50.40, 30.60 50.60, 30.40 50.60, 30.40 50.40)))', 4326)
+);
+
+INSERT INTO unit (
+    id,
+    status,
+    region,
+    district,
+    community,
+    community_category,
+    unit_type,
+    name,
+    locality,
+    street,
+    building_number,
+    latitude,
+    longitude,
+    mobile_office_support,
+    unit_type_details,
+    geom
+) VALUES (
+    10,
+    'AVAILABLE',
+    'Test Region',
+    'Test District',
+    'Test Community',
+    'Test Category',
+    'Test Unit Type',
+    'Test Unit',
+    'Test Locality',
+    'Test Street',
+    '1A',
+    50.52,
+    30.51,
+    'SUPPORTED',
+    'ДПК',
+    ST_SetSRID(ST_MakePoint(30.51, 50.52), 4326)
+);
+
+INSERT INTO volunteer_contact_info (id, mobile_phone)
+VALUES (600, '+380501112233');
+
+INSERT INTO volunteer_profile (
+    id,
+    correlation_id,
+    latitude,
+    longitude,
+    status,
+    volunteer_contact_info_id,
+    rnokpp,
+    region,
+    geom,
+    qualification
+) VALUES (
+    100,
+    'corr-100',
+    50.52,
+    30.51,
+    'AVAILABLE',
+    600,
+    '1234567890',
+    'Test Region',
+    ST_SetSRID(ST_MakePoint(30.51, 50.52), 4326),
+    'RESCUER'
+);
+
+INSERT INTO users (
+    id,
+    username,
+    password,
+    email,
+    rnokpp,
+    role,
+    region_id,
+    volunteer_profile_id,
+    verify_status
+) VALUES (
+    200,
+    'test-unit-manager',
+    'password',
+    'unit-manager@test.local',
+    '1234567890',
+    'UNIT_MANAGER',
+    1,
+    100,
+    'VERIFIED'
+);
+
+INSERT INTO volunteer_unit (
+    id,
+    unit_id,
+    volunteer_profile_id,
+    status,
+    priority,
+    activated
+) VALUES (
+    300,
+    10,
+    100,
+    'UNIT_MANAGER',
+    1,
+    TRUE
+);
+
+INSERT INTO duty_note (id, date, created_by, unit_id)
+VALUES (400, CURRENT_DATE, 200, 10);
+
+INSERT INTO duty_note_member (id, duty_note_id, volunteer_profile_id, on_duty)
+VALUES (500, 400, 100, TRUE);
