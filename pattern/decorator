@@ -1,0 +1,54 @@
+public interface Notification {
+    void send(String message);
+}
+--------------------------------------------------------------
+public class EmailNotification implements Notification {
+    public void send(String message) {
+        System.out.println("Email: " + message);
+    }
+}
+--------------------------------------------------------------
+public abstract class NotificationDecorator implements Notification {
+    protected Notification wrapped;
+
+    public NotificationDecorator(Notification wrapped) {
+        this.wrapped = wrapped;
+    }
+
+    public void send(String message) {
+        wrapped.send(message);
+    }
+}
+--------------------------------------------------------------
+public class SMSDecorator extends NotificationDecorator {
+
+    public SMSDecorator(Notification wrapped) {
+        super(wrapped);
+    }
+
+    public void send(String message) {
+        super.send(message);
+        System.out.println("SMS: " + message);
+    }
+}
+--------------------------------------------------------------
+public class SlackDecorator extends NotificationDecorator {
+
+    public SlackDecorator(Notification wrapped) {
+        super(wrapped);
+    }
+
+    public void send(String message) {
+        super.send(message);
+        System.out.println("Slack: " + message);
+    }
+}
+--------------------------------------------------------------
+Notification notification =
+    new SlackDecorator(
+        new SMSDecorator(
+            new EmailNotification()
+        )
+    );
+
+notification.send("Hello");
