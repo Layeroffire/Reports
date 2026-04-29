@@ -1,0 +1,7 @@
+public class OrderService {
+    private final PaymentService paymentService; //воно
+
+    public OrderService(PaymentService paymentService) {
+        this.paymentService = paymentService;
+    }
+}
