@@ -1,0 +1,10 @@
+INSERT INTO unit (
+   building_number, community, community_category, district, geom,
+   latitude, locality, longitude, mobile_office_support, name, region,
+   street, unit_type, unit_type_details, status
+)
+VALUES (
+          '1', 'Ясінянська', 'селищна', 'Рахівський', ST_Point(24.3596814, 48.2709539),
+          48.2709539, 'смт Ясіня', 24.3596814, '_', 'МПО "Ясіня-Центр"', 'Закарпатська',
+          'вул. Миру', 'Місцева пожежна охорона', '_', 'AVAILABLE'
+      );
