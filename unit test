@@ -1,0 +1,80 @@
+package com.nexus.usecase;
+
+import static com.nexus.domain.person.PersonErrorCode.PERSON_NOT_FOUND;
+import static com.nexus.domain.person.PersonErrorCode.PERSON_TO_ACCOUNT_MISMATCH;
+import static org.junit.Assert.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.when;
+
+import com.nexus.domain.exception.DomainException;
+import com.nexus.domain.person.Person;
+import com.nexus.domain.person.commands.UpdatePersonCommand;
+import com.nexus.usecase.outport.PersonPersistenceOutPort;
+import java.time.LocalDate;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+
+class UpdatePersonUseCaseTest {
+  @InjectMocks private UpdatePersonUseCase updatePersonUseCase;
+
+  @Mock private PersonPersistenceOutPort personPersistenceOutPort;
+
+  public UpdatePersonUseCaseTest() {
+    MockitoAnnotations.openMocks(this);
+  }
+
+  @Test
+  void Test_Exception() {
+    // given
+    UpdatePersonCommand command =
+        UpdatePersonCommand.builder()
+            .personId(UUID.randomUUID().toString())
+            .accountId(UUID.randomUUID().toString())
+            .firstName("test-user")
+            .secondName("test-secondName")
+            .lastName("test-lastName")
+            .dateOfBirth("2007-12-02")
+            .build();
+
+    // when
+    DomainException message =
+        assertThrows(DomainException.class, () -> updatePersonUseCase.invoke(command));
+    assertEquals("person-not-found", message.getMessage(), "invalid message");
+    assertEquals(PERSON_NOT_FOUND, message.getErrorCode(), "not found");
+  }
+
+  @Test
+  void Test_Equals() {
+    // given
+    UpdatePersonCommand command =
+        UpdatePersonCommand.builder()
+            .personId(UUID.randomUUID().toString())
+            .accountId(UUID.randomUUID().toString())
+            .firstName("test-user")
+            .secondName("test-secondName")
+            .lastName("test-lastName")
+            .dateOfBirth("2007-12-02")
+            .build();
+
+    Person wrongPerson =
+        Person.builder()
+            .personId(UUID.randomUUID().toString())
+            .accountId(UUID.randomUUID().toString())
+            .firstName("test-user")
+            .secondName("test-secondName")
+            .lastName("test-lastName")
+            .dateOfBirth(LocalDate.parse("2007-12-02"))
+            .build();
+
+    when(personPersistenceOutPort.findByPersonId(command.personId())).thenReturn(wrongPerson);
+
+    // when
+    DomainException message =
+        assertThrows(DomainException.class, () -> updatePersonUseCase.invoke(command));
+    assertEquals("person-to-account-mismatch", message.getMessage(), "invalid message");
+    assertEquals(PERSON_TO_ACCOUNT_MISMATCH, message.getErrorCode(), "invalid error code");
+  }
+}
